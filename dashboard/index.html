@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phone Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Phone Dashboard</h1>
+    <p id="status" class="status">Connecting…</p>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Device</h2>
+      <p class="big" id="model">–</p>
+    </section>
+
+    <section class="card">
+      <h2>Battery</h2>
+      <p class="big"><span id="battery-level">–</span>%</p>
+      <div class="bar"><div class="fill" id="battery-bar"></div></div>
+      <p class="detail" id="battery-detail">–</p>
+    </section>
+
+    <section class="card">
+      <h2>Storage</h2>
+      <p class="big"><span id="storage-percent">–</span>%</p>
+      <div class="bar"><div class="fill" id="storage-bar"></div></div>
+      <p class="detail" id="storage-detail">–</p>
+    </section>
+
+    <section class="card">
+      <h2>RAM</h2>
+      <p class="big"><span id="ram-percent">–</span>%</p>
+      <div class="bar"><div class="fill" id="ram-bar"></div></div>
+      <p class="detail" id="ram-detail">–</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
