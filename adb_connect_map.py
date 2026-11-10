@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import re
@@ -26,37 +27,49 @@ def adb_command(command: str) -> Optional[str]:
         print(f"Error executing command: {e}")
         return None
 
+# Wireless debugging devices show up in `adb devices` as IP:port (e.g. 192.168.1.5:41005).
+# The port is chosen by Android and changes, so we must not assume 5555.
+WIRELESS_IP_RE = re.compile(r'^\d{1,3}(\.\d{1,3}){3}:\d+$')
+PAIR_ADDRESS_RE = re.compile(r'^\d{1,3}(\.\d{1,3}){3}:\d{2,5}$')
+PAIR_CODE_RE = re.compile(r'^\d{6}$')
+
+
+def is_wireless(serial: str) -> bool:
+    """True if the device is connected over Wi-Fi (IP:port, or an mDNS name from Wireless debugging)."""
+    return bool(WIRELESS_IP_RE.match(serial)) or "._adb-tls-connect._tcp" in serial
+
+
 def get_device_connection_type(serial: str) -> str:
     """
-    Returns whether a device is connected via USB or Wi-Fi based on the adb devices -l output.
-    
+    Returns whether a device is connected via USB or Wi-Fi.
+
     Args:
         serial (str): The serial number of the device.
-    
+
     Returns:
-        str: "usb" if the device is connected via USB, "wifi" if connected via Wi-Fi.
+        str: "wifi" for wireless devices (any port), "usb" for cable, "offline" if not listed.
     """
     devices_list = adb_command("adb devices -l")
-    
+
     if devices_list:
         for line in devices_list.splitlines():
             if serial in line:
-                if ":5555" in line:
-                    return "wifi"
-                else:
-                    return "usb"
+                return "wifi" if is_wireless(serial) else "usb"
     return "offline"
 
 def get_device_ip(serial: str) -> Optional[str]:
     """
     Retrieves the IP address of the device.
-    
+    For IP:port serials the address is already in the serial, so no extra adb call is needed.
+
     Args:
         serial (str): The serial number of the device.
-    
+
     Returns:
         Optional[str]: The IP address of the device, or None if it cannot be determined.
     """
+    if WIRELESS_IP_RE.match(serial):
+        return serial.split(":")[0]
     ip_address = adb_command(f"adb -s {serial} shell ip addr show wlan0 | grep inet")
     if ip_address:
         return ip_address.split()[1].split('/')[0]
@@ -117,8 +130,8 @@ def get_device_status(serial: str) -> str:
 def update_device_map() -> None:
     """
     Updates the device_map.json file by extracting data from all connected devices.
-    Skips devices that are offline and updates data for those that are connected.
-    The information is added or updated for existing devices.
+    Wireless devices (IP:port serials) are supported. Devices that adb does not list
+    right now are marked "offline", so old entries never show up as connected.
     """
     devices_list = adb_command("adb devices")
     try:
@@ -128,72 +141,63 @@ def update_device_map() -> None:
         device_map = {"devices": []}
 
     device_index = {device["serial"]: idx for idx, device in enumerate(device_map["devices"])}
+    seen = set()
 
     if devices_list:
         for line in devices_list.splitlines():
-            if line.strip() and line.strip() != "List of devices attached":
-                serial = line.split('\t')[0]
-                if re.match(r'^\d{1,3}(\.\d{1,3}){3}:\d+$', serial):
-                    serial = ""
-                if not serial:
-                    continue
-                
-                status = get_device_status(serial)
+            if not line.strip() or line.strip() == "List of devices attached" or line.startswith("*"):
+                continue
+            serial = line.split('\t')[0].strip()
+            if not serial:
+                continue
+            seen.add(serial)
 
-                if status == "device":
-                    if serial in device_index:
-                        device = device_map["devices"][device_index[serial]]
-                        updated = False
+            status = get_device_status(serial)
 
-                        if not device.get("model"):
-                            device["model"] = adb_command(f"adb -s {serial} shell getprop ro.product.model") or ""
-                            updated = True
-                        
-                        if not device.get("device_type"):
-                            device["device_type"] = adb_command(f"adb -s {serial} shell getprop ro.product.device") or ""
-                            updated = True
+            if status == "device":
+                if serial in device_index:
+                    device = device_map["devices"][device_index[serial]]
 
-                        connection_type = get_device_connection_type(serial)
-                        
-                        if connection_type == "wifi" and not device.get("ip_address"):
-                            ip_address = adb_command(f"adb -s {serial} shell ip addr show wlan0 | grep inet") or ""
-                            if ip_address:
-                                device["ip_address"] = ip_address.split()[1].split('/')[0]
-                            updated = True
-                        
-                        if connection_type == "usb" and not device.get("ip_address"):
-                            device["ip_address"] = ""
-                            updated = True
+                    if not device.get("model"):
+                        device["model"] = adb_command(f"adb -s {serial} shell getprop ro.product.model") or ""
+                    if not device.get("device_type"):
+                        device["device_type"] = adb_command(f"adb -s {serial} shell getprop ro.product.device") or ""
 
-                        if device.get("status") != status:
-                            device["status"] = status
-                            updated = True
+                    if get_device_connection_type(serial) == "wifi":
+                        device["ip_address"] = get_device_ip(serial) or device.get("ip_address", "")
+                    elif not device.get("ip_address"):
+                        device["ip_address"] = ""
 
-                        if updated:
-                            device_map["devices"][device_index[serial]] = device
-                    else:
-                        device_info = get_device_info(serial)
-                        if device_info:
-                            new_device = {
-                                "name": "",
-                                "serial": serial,
-                                "model": device_info.get("model", ""),
-                                "device_type": device_info.get("device_type", ""),
-                                "ip_address": device_info.get("ip_address", ""),
-                                "status": status
-                            }
-                            device_map["devices"].append(new_device)
-                            device_index[serial] = len(device_map["devices"]) - 1
-
+                    device["status"] = status
                 else:
-                    existing_device = next((device for device in device_map['devices'] if device['serial'] == serial), None)
-                    display_name = existing_device.get("name") or existing_device.get("model") or serial if existing_device else serial
-                    print(f"Device '{display_name}' is offline. Skipping...")
+                    device_info = get_device_info(serial)
+                    if device_info:
+                        new_device = {
+                            "name": "",
+                            "serial": serial,
+                            "model": device_info.get("model", ""),
+                            "device_type": device_info.get("device_type", ""),
+                            "ip_address": device_info.get("ip_address") or "",
+                            "status": status
+                        }
+                        device_map["devices"].append(new_device)
+                        device_index[serial] = len(device_map["devices"]) - 1
+            else:
+                if serial in device_index:
+                    existing_device = device_map["devices"][device_index[serial]]
+                    existing_device["status"] = status
+                    display_name = existing_device.get("name") or existing_device.get("model") or serial
+                else:
+                    display_name = serial
+                print(f"Device '{display_name}' is {status}. Skipping...")
+
+    # Anything we saw before but adb no longer lists is not connected.
+    for device in device_map["devices"]:
+        if device["serial"] not in seen:
+            device["status"] = "offline"
 
     with open("device_map.json", "w") as json_file:
         json.dump(device_map, json_file, indent=4)
-
-    # print("device_map.json has been updated.")
 
 def is_device_authorized(serial: str) -> bool:
     """
@@ -222,116 +226,162 @@ def is_device_authorized(serial: str) -> bool:
 def display_device_menu(devices: List[Dict[str, str]]) -> int:
     """
     Displays a CLI menu with all connected devices and returns the selected device index.
-    
+
     Args:
         devices (List[Dict[str, str]]): A list of devices to display in the menu.
-    
+
     Returns:
-        int: The selected device index, or 0 if the user wants to exit.
+        int: The selected device index (1-based), or 0 if the user wants to exit.
     """
-    # Software name and tagline (you can customize this)
     software_name = "ADB Device Manager"
     software_tagline = "Easily manage and connect your Android devices via ADB"
 
-    # Print a decorative header
     print("=" * 55)
     print(f"{software_name}".center(50))
     print(f"{software_tagline}".center(50))
     print("=" * 55)
-    
+
     print("\nSelect a device to connect to (or 0 to exit):\n")
-    # Print the device options
     for index, device in enumerate(devices, start=1):
         device_name = device.get("name") or device.get("model") or device["serial"]
-        print(f"{index}. {device_name} ({device['serial']})")
-    
-    # Get user input
+        kind = "Wi-Fi" if is_wireless(device["serial"]) else "USB"
+        print(f"{index}. {device_name} ({device['serial']}) [{kind}]")
+
     try:
         choice = int(input("\nSelect a number: "))
-        if 0 <= choice <= len(devices):
-            # Get the selected device's serial
+        if choice == 0:
+            return 0
+        if 1 <= choice <= len(devices):
             selected_device = devices[choice - 1]
             serial = selected_device['serial']
-            
-            # Check if the device is authorized
+            device_name = selected_device.get("name") or selected_device.get("model") or serial
+
             if not is_device_authorized(serial):
                 print(f"\nDevice {device_name} is unauthorized for ADB connection.")
-                print("Please authorize the device via USB first and try again.")
-                # Exit or ask the user to reconnect via USB
+                print("Please allow USB debugging on the phone and try again.")
                 return 0
-            
-            # Proceed with the selection
+
             return choice
-            
-        else:
-            print("Invalid choice. Please enter a valid number.")
-            # Recurse until valid input
-            return display_device_menu(devices)
+
+        print("Invalid choice. Please enter a valid number.")
+        return display_device_menu(devices)
     except ValueError:
         print("Invalid input. Please enter a number.")
-        # Recurse until valid input
         return display_device_menu(devices)
-def main() -> None:
-    """
-    Main function to update the device map, display the menu, and connect to the selected device.
-    """
-    update_device_map()
 
+def get_connected_devices() -> List[Dict[str, str]]:
+    """Refreshes device_map.json and returns only the devices that are connected right now."""
+    update_device_map()
     try:
         with open("device_map.json", "r") as json_file:
             device_map = json.load(json_file)
     except FileNotFoundError:
-        print("No devices found.")
-        return
+        return []
+    return [device for device in device_map["devices"] if device.get("status") == "device"]
 
-    devices = [device for device in device_map["devices"] if device["status"] == "device"]
+
+def wireless_setup() -> None:
+    """
+    Guides the user through connecting a phone over Wi-Fi (Android 11+ Wireless debugging).
+    Everything typed here is checked before it is used, so it cannot inject shell commands.
+    """
+    print("\nOn the phone: Settings > Developer options > Wireless debugging (turn it on).")
+    print("Phone and computer must be on the same Wi-Fi network.\n")
+
+    print("Step 1 (first time only): tap 'Pair device with pairing code' on the phone.")
+    pair_address = input("Pairing address IP:PORT (press Enter to skip if already paired): ").strip()
+    if pair_address:
+        code = input("6-digit pairing code: ").strip()
+        if PAIR_ADDRESS_RE.match(pair_address) and PAIR_CODE_RE.match(code):
+            print(adb_command(f"adb pair {pair_address} {code}") or "Pairing failed. Check the address and code.")
+        else:
+            print("That address or code does not look right. Skipping pairing.")
+
+    print("\nStep 2: use the IP address and port shown on the main Wireless debugging screen.")
+    address = input("Connect address IP:PORT (press Enter to cancel): ").strip()
+    if address:
+        if PAIR_ADDRESS_RE.match(address):
+            print(adb_command(f"adb connect {address}") or "Connection failed. Check the address.")
+        else:
+            print("That address does not look right.")
+
+
+def choose_action() -> str:
+    """Asks what to open for the selected device."""
+    print("\nWhat do you want to open?\n")
+    print("1. Live dashboard (opens in your browser)")
+    print("2. Screen mirror (scrcpy)")
+    print("0. Exit")
+    choice = input("\nSelect a number: ").strip()
+    return {"1": "dashboard", "2": "scrcpy"}.get(choice, "exit")
+
+
+def launch_dashboard(serial: str, port: int = 8000) -> None:
+    """Starts the live phone dashboard (server.py, in the same folder) for one device."""
+    try:
+        import server
+    except ImportError:
+        print("server.py was not found next to adb_connect_map.py.")
+        return
+    server.run(serial=serial, port=port, open_browser=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="ADB Device Manager")
+    parser.add_argument("--action", choices=["dashboard", "scrcpy"], help="skip the 'what to open' question")
+    parser.add_argument("--port", type=int, default=8000, help="port for the live dashboard (default 8000)")
+    return parser.parse_args()
+
+
+def main() -> None:
+    """
+    Main function: find connected devices (USB or Wi-Fi), let the user pick one,
+    then open the live dashboard or a scrcpy screen mirror.
+    """
+    args = parse_args()
+    devices = get_connected_devices()
 
     if not devices:
-        print("No devices are currently connected. Exiting.")
+        print("No devices are currently connected.")
+        if input("Set up a wireless connection now? [y/N] ").strip().lower().startswith("y"):
+            wireless_setup()
+            devices = get_connected_devices()
+        if not devices:
+            print("No devices connected. Exiting.")
+            return
+
+    choice = display_device_menu(devices)
+    if choice == 0:
+        print("Exiting...")
         return
 
-    while True:
-        choice = display_device_menu(devices)
+    selected_device = devices[choice - 1]
+    serial = selected_device["serial"]
 
-        if choice == 0:
-            print("Exiting...")
-            break
+    action = args.action or choose_action()
 
-        # Get the selected device from the list (adjust index as Python is 0-based)
-        selected_device = devices[choice - 1]
+    if action == "dashboard":
+        launch_dashboard(serial, args.port)
+        return
+    if action != "scrcpy":
+        print("Exiting...")
+        return
 
-        # Disconnect all devices except the selected one
-        for device in devices:
-            if device != selected_device:
-                serial = device["serial"]
-                print(f"Disconnecting {device['name']} ({serial})...")
-                adb_command(f"adb -s {serial} disconnect")
+    # Disconnect all devices except the selected one (original behavior of the scrcpy path)
+    for device in devices:
+        if device != selected_device:
+            other = device["serial"]
+            print(f"Disconnecting {device.get('name') or device.get('model') or other} ({other})...")
+            adb_command(f"adb -s {other} disconnect")
 
-        # Connect to the selected device
-        serial = selected_device["serial"]
-        connection_type = get_device_connection_type(serial)
+    # A wireless device is already connected (its serial is its IP:port). Only USB needs this.
+    if get_device_connection_type(serial) == "usb":
+        adb_command(f"adb -s {serial} usb")
 
-        if connection_type == "wifi":
-            # print(f"Connecting to {selected_device['name']} over Wi-Fi...")
-            adb_command(f"adb connect {selected_device['ip_address']}:5555")
-        elif connection_type == "usb":
-            # print(f"Connecting to {selected_device['name']} via USB...")
-            adb_command(f"adb -s {serial} usb")
-
-        # Launch scrcpy to allow remote access to the device
-        # print(f"Launching scrcpy for {selected_device['name']}...")
-
-        # Suppress output by redirecting both stdout and stderr to os.devnull
-        subprocess.run(["scrcpy", "-s", serial], stdout=open(os.devnull, 'w'), stderr=open(os.devnull, 'w'))
-
-        # Wait for user to manually stop scrcpy
-        # print(f"Press Ctrl+C to exit scrcpy for {selected_device['name']}...")
-
-        # After scrcpy is closed, exit the program instead of going back to the menu
-        print("\nDisconnected.")
-
-        # Exit the script immediately
-        sys.exit()
+    # Launch scrcpy to allow remote access to the device (output hidden)
+    subprocess.run(["scrcpy", "-s", serial], stdout=open(os.devnull, 'w'), stderr=open(os.devnull, 'w'))
+    print("\nDisconnected.")
+    sys.exit()
 
 if __name__ == "__main__":
     main()

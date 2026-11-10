@@ -13,6 +13,7 @@ import argparse
 import json
 import threading
 import time
+import webbrowser
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -60,20 +61,34 @@ class Handler(SimpleHTTPRequestHandler):
         pass   # keep the terminal quiet
 
 
+def make_server(serial=None, port=8000):
+    """Create the dashboard server (does not start it)."""
+    Handler.serial = serial
+    handler = partial(Handler, directory=str(DASHBOARD_DIR))
+    return ThreadingHTTPServer(("127.0.0.1", port), handler)
+
+
+def run(serial=None, port=8000, open_browser=False):
+    """Start the dashboard and keep serving until Ctrl+C. Used by server.py and adb_connect_map.py."""
+    server = make_server(serial, port)
+    url = f"http://127.0.0.1:{port}"
+    print(f"Dashboard running at {url}  (Ctrl+C to stop)")
+    if open_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        server.server_close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Phone dashboard server")
     parser.add_argument("-s", "--serial", help="device serial from `adb devices`")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-
-    Handler.serial = args.serial
-    handler = partial(Handler, directory=str(DASHBOARD_DIR))
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
-    print(f"Dashboard running at http://127.0.0.1:{args.port}  (Ctrl+C to stop)")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopped.")
+    run(args.serial, args.port)
 
 
 if __name__ == "__main__":
