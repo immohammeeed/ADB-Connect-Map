@@ -12,7 +12,9 @@ Usage:
 """
 import argparse
 import json
+import re
 import subprocess
+from pathlib import Path
 
 # Meaning of the numbers Android uses in `dumpsys battery`
 BATTERY_STATUS = {1: "unknown", 2: "charging", 3: "discharging", 4: "not charging", 5: "full"}
@@ -89,10 +91,52 @@ def parse_memory(text):
     }
 
 
+# ---------- friendly phone name (SM-G991B -> Galaxy S21 5G) ----------
+NAMES_FILE = Path(__file__).with_name("device_names.json")   # model code -> marketing name
+MARKETING_PROPS = ["ro.product.marketname", "ro.config.marketing_name", "ro.product.odm.marketname"]
+_name_cache = {}
+
+
+def load_name_table():
+    """Read device_names.json (model code -> marketing name). Missing file = empty table."""
+    try:
+        with open(NAMES_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def parse_getprop(text):
+    """Turn the output of `getprop` ([name]: [value] lines) into a dictionary."""
+    props = {}
+    for match in re.finditer(r"^\[(.+?)\]: \[(.*)\]$", text, re.MULTILINE):
+        props[match.group(1)] = match.group(2)
+    return props
+
+
+def friendly_name(model, serial=None):
+    """Best name we can find. Tried in order: our table, names the phone reports, the model code."""
+    key = (serial, model)
+    if key in _name_cache:               # the name never changes, so ask only once
+        return _name_cache[key]
+    name = load_name_table().get(model)
+    if not name:
+        try:
+            props = parse_getprop(adb(["shell", "getprop"], serial))
+            name = next((props[p] for p in MARKETING_PROPS if props.get(p)), None)
+        except RuntimeError:
+            name = None
+    name = name or model
+    _name_cache[key] = name
+    return name
+
+
 def read_phone(serial=None):
     """Ask the phone for everything and return one dictionary."""
+    model = adb(["shell", "getprop", "ro.product.model"], serial).strip()
     return {
-        "model": adb(["shell", "getprop", "ro.product.model"], serial).strip(),
+        "model": model,
+        "name": friendly_name(model, serial),
         "battery": parse_battery(adb(["shell", "dumpsys", "battery"], serial)),
         "storage": parse_storage(adb(["shell", "df", "/data"], serial)),
         "memory": parse_memory(adb(["shell", "cat", "/proc/meminfo"], serial)),
@@ -115,7 +159,8 @@ def main():
         return
 
     b, s, m = data["battery"], data["storage"], data["memory"]
-    print(f"Phone:    {data['model']}")
+    shown = data["model"] if data["name"] == data["model"] else f"{data['name']} ({data['model']})"
+    print(f"Phone:    {shown}")
     print(f"Battery:  {b['level_percent']}% ({b['status']}, {b['power_source']}), "
           f"{b['temperature_c']} C, {b['voltage_v']} V, health {b['health']}")
     print(f"Storage:  {s['used_gb']} / {s['total_gb']} GB used ({s['used_percent']}%)")

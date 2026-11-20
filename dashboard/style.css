@@ -57,3 +57,43 @@ h2 { margin: 0 0 8px; font-size: 1rem; font-weight: 700; letter-spacing: 0.04em;
 
 @keyframes pop { from { opacity: 0; transform: scale(0.8) translateY(20px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .card { animation: none; transition: none; } }
+
+/* ---------- "no phone connected" screen ---------- */
+body[data-state="disconnected"] .grid { display: none; }
+body:not([data-state="disconnected"]) .empty { display: none; }
+
+.empty {
+  max-width: 640px; margin: 20px auto 0; padding: 44px 32px 32px; text-align: center;
+  background: var(--card); border-radius: 48px 20px 48px 20px;
+  animation: pop 0.7s var(--spring) both;
+}
+.blob {
+  position: relative; width: 150px; height: 150px; margin: 0 auto 24px;
+  background: color-mix(in srgb, var(--primary) 28%, var(--card));
+  border-radius: 60% 40% 55% 45% / 55% 60% 40% 45%;
+  animation: morph 7s ease-in-out infinite, drift 14s linear infinite;
+}
+.blob svg { position: absolute; inset: 0; margin: auto; width: 76px; height: 76px; animation: counter 14s linear infinite; }
+.blob rect, .blob circle { fill: none; stroke: var(--primary); stroke-width: 3; stroke-linecap: round; }
+.blob circle { fill: var(--primary); }
+.empty h2 { margin: 0 0 10px; font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -0.03em; text-transform: none; opacity: 1; color: var(--text); }
+.hint { margin: 0 auto 22px; max-width: 460px; color: var(--muted); line-height: 1.5; }
+.steps { margin: 0 auto 24px; padding: 18px 20px 18px 40px; max-width: 460px; text-align: left; background: var(--bg); border-radius: 24px; color: var(--muted); line-height: 1.7; }
+.steps strong { color: var(--text); }
+.steps code, .raw { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.steps code { color: var(--secondary); }
+.searching { display: inline-flex; align-items: center; gap: 10px; margin: 0; padding: 8px 16px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 0.9rem; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--primary); animation: pulse 1.4s ease-in-out infinite; }
+.raw { margin: 18px 0 0; font-size: 0.8rem; color: var(--muted); opacity: 0.7; word-break: break-word; }
+
+@keyframes morph {
+  0%, 100% { border-radius: 60% 40% 55% 45% / 55% 60% 40% 45%; }
+  33% { border-radius: 42% 58% 38% 62% / 58% 42% 60% 40%; }
+  66% { border-radius: 55% 45% 62% 38% / 40% 58% 42% 60%; }
+}
+@keyframes drift { to { transform: rotate(360deg); } }
+@keyframes counter { to { transform: rotate(-360deg); } }   /* keeps the phone icon upright */
+@keyframes pulse { 0%, 100% { transform: scale(0.7); opacity: 0.5; } 50% { transform: scale(1.2); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .blob, .blob svg, .dot, .empty { animation: none; } }
+
+.chip:empty { display: none; }

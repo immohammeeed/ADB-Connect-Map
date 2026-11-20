@@ -69,6 +69,27 @@ seedInput.addEventListener("input", () => {
 
 // ---------- live data ----------
 let busy = false;
+
+// Turn adb's error text into a friendly title and hint.
+function explain(message) {
+  const m = (message || "").toLowerCase();
+  if (m.includes("unauthorized")) return ["Allow USB debugging", "Look at your phone's screen and tap Allow on the USB debugging prompt."];
+  if (m.includes("more than one")) return ["More than one device found", "Start the server for one phone: python3 server.py -s SERIAL (serials are listed by adb devices)."];
+  if (m.includes("offline")) return ["Phone is offline", "Reconnect the cable, or turn Wireless debugging off and on again."];
+  if (m.includes("no such file") || m.includes("not found") && m.includes("adb")) return ["ADB is not installed", "Install the Android platform tools (adb), then restart server.py."];
+  if (m.includes("timed out")) return ["The phone is not answering", "Unlock the phone and check the connection."];
+  return ["No phone connected", "Plug in your phone or turn on Wireless debugging."];
+}
+
+function showDisconnected(message) {
+  const [title, hint] = explain(message);
+  $("empty-title").textContent = title;
+  $("empty-hint").textContent = hint;
+  $("empty-raw").textContent = message ? "Details: " + message : "";
+  for (const b of Object.values(bars)) b.target = 0;   // bars spring back up when the phone returns
+  document.body.dataset.state = "disconnected";
+}
+
 function showStatus(text, kind) { const el = $("status"); el.textContent = text; el.className = "status " + kind; }
 
 async function refresh() {
@@ -79,7 +100,7 @@ async function refresh() {
     const d = await response.json();
     if (!response.ok || d.error) throw new Error(d.error || "Phone not reachable");
 
-    $("model").textContent = d.model;
+    $("model").textContent = d.name && d.name !== d.model ? `${d.name} · ${d.model}` : d.model;
     $("battery-level").textContent = d.battery.level_percent;
     $("battery-detail").textContent =
       `${d.battery.status}, ${d.battery.power_source} · ${d.battery.temperature_c} °C · ${d.battery.voltage_v} V · health ${d.battery.health}`;
@@ -91,9 +112,12 @@ async function refresh() {
     bars.battery.target = d.battery.level_percent;
     bars.storage.target = d.storage.used_percent;
     bars.ram.target = d.memory.used_percent;
+    document.body.dataset.state = "connected";
     showStatus("● Connected · updated " + new Date().toLocaleTimeString(), "ok");
   } catch (error) {
-    showStatus("Not connected: " + error.message, "bad");
+    $("model").textContent = "";
+    showDisconnected(error.message);
+    showStatus("Not connected", "bad");
   } finally {
     busy = false;
   }

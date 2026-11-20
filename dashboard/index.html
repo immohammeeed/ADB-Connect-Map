@@ -10,10 +10,25 @@
   <header>
     <div>
       <h1>Phone Dashboard</h1>
-      <div class="chips"><p id="status" class="status">Connecting…</p><p id="model" class="chip">–</p></div>
+      <div class="chips"><p id="status" class="status">Connecting…</p><p id="model" class="chip"></p></div>
     </div>
     <label class="seed">Seed color <input type="color" id="seed" value="#6750a4"></label>
   </header>
+
+  <section class="empty" id="empty">
+    <div class="blob">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="20" y="8" width="24" height="48" rx="6"/><circle cx="32" cy="48" r="2"/></svg>
+    </div>
+    <h2 id="empty-title">No phone connected</h2>
+    <p class="hint" id="empty-hint">Plug in your phone or turn on Wireless debugging.</p>
+    <ol class="steps">
+      <li>Connect with a USB cable, or turn on Wireless debugging</li>
+      <li>Tap <strong>Allow</strong> on the USB debugging prompt on the phone</li>
+      <li>Check that <code>adb devices</code> lists your phone</li>
+    </ol>
+    <p class="searching"><span class="dot"></span>Looking for your phone every 2 seconds…</p>
+    <p class="raw" id="empty-raw"></p>
+  </section>
 
   <main class="grid">
     <section class="card hero c-primary">

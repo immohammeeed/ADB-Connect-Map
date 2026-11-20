@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from typing import Dict, List, Optional
@@ -367,6 +368,11 @@ def main() -> None:
         print("Exiting...")
         return
 
+    if shutil.which("scrcpy") is None:
+        print("scrcpy is not installed, so the screen mirror cannot start.")
+        print("Install it from your package manager or from https://github.com/Genymobile/scrcpy and try again.")
+        return
+
     # Disconnect all devices except the selected one (original behavior of the scrcpy path)
     for device in devices:
         if device != selected_device:
@@ -374,13 +380,17 @@ def main() -> None:
             print(f"Disconnecting {device.get('name') or device.get('model') or other} ({other})...")
             adb_command(f"adb -s {other} disconnect")
 
-    # A wireless device is already connected (its serial is its IP:port). Only USB needs this.
-    if get_device_connection_type(serial) == "usb":
-        adb_command(f"adb -s {serial} usb")
-
-    # Launch scrcpy to allow remote access to the device (output hidden)
-    subprocess.run(["scrcpy", "-s", serial], stdout=open(os.devnull, 'w'), stderr=open(os.devnull, 'w'))
-    print("\nDisconnected.")
+    # Launch scrcpy to allow remote access to the device.
+    # (The original ran `adb usb` here, which restarts adb on the phone right before scrcpy
+    # connects. That is not needed for a device that is already connected, so it was removed.)
+    # Output is captured so that a crash shows its real error instead of a silent "Disconnected."
+    result = subprocess.run(["scrcpy", "-s", serial], capture_output=True, text=True)
+    if result.returncode != 0:
+        print("\nscrcpy stopped with an error:\n")
+        print((result.stderr or result.stdout).strip()[-1500:])
+        print("\nTip: run `scrcpy --version` and `adb devices`. An old scrcpy often fails on newer Android versions.")
+    else:
+        print("\nDisconnected.")
     sys.exit()
 
 if __name__ == "__main__":
