@@ -2,3 +2,7 @@ __pycache__/
 device_map.json
 device_map.json
 device_map.json
+dist/
+build/
+*.spec
+.build-venv/
