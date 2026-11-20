@@ -1,0 +1,70 @@
+# Builds the one-file executables on GitHub's own computers (Windows and Linux)
+# and attaches them to a GitHub Release when you push a version tag like v1.0.0.
+name: Build and release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:        # lets you also run it by hand from the Actions tab
+
+permissions:
+  contents: write           # needed to create the release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            sep: ";"
+            binary: dist/phone-dashboard.exe
+            asset: phone-dashboard-windows.exe
+          - os: ubuntu-latest
+            sep: ":"
+            binary: dist/phone-dashboard
+            asset: phone-dashboard-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build the executable
+        shell: bash
+        run: >
+          pyinstaller --onefile --clean --noconfirm --name phone-dashboard
+          --add-data "dashboard${{ matrix.sep }}dashboard"
+          --add-data "device_names.json${{ matrix.sep }}."
+          app.py
+
+      - name: Self-test and rename
+        shell: bash
+        run: |
+          ./${{ matrix.binary }} --self-test
+          cp ${{ matrix.binary }} ${{ matrix.asset }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true
