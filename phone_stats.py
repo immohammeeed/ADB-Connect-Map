@@ -14,6 +14,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 # Meaning of the numbers Android uses in `dumpsys battery`
@@ -92,7 +93,7 @@ def parse_memory(text):
 
 
 # ---------- friendly phone name (SM-G991B -> Galaxy S21 5G) ----------
-NAMES_FILE = Path(__file__).with_name("device_names.json")   # model code -> marketing name
+NAMES_FILE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "device_names.json"   # model code -> marketing name
 MARKETING_PROPS = ["ro.product.marketname", "ro.config.marketing_name", "ro.product.odm.marketname"]
 _name_cache = {}
 

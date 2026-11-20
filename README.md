@@ -1,77 +1,106 @@
-# ADB Connect Map
+# ADB Connect Map: Live Phone Dashboard
 
-**ADB Connect Map** is a tool that scans and maps all devices that can be connected via ADB, whether through USB or Wi-Fi. It generates and maintains a `device_map.json` file with up-to-date device information. This map is then used to create a user-friendly menu, allowing you to easily connect to your devices via `scrcpy` for remote access and control.
+A fork of [crosenblum/ADB-Connect-Map](https://github.com/crosenblum/ADB-Connect-Map) (MIT license).
+The original scans Android devices over ADB and opens them in scrcpy. This fork adds a **live web dashboard** for your phone and makes **wireless debugging** work properly.
 
-## Features
-- Automatically scans and updates a `device_map.json` with detailed device information.
-- Displays a user-friendly CLI menu for selecting a device to connect to.
-- Supports both USB and Wi-Fi connections.
-- Uses `scrcpy` to remotely access Android devices.
-- Easy device selection and connection, with error handling and device authorization checks.
+## What this fork adds
+
+- **Live dashboard** in your browser: battery (level, temperature, voltage, health), storage and RAM, refreshed every 2 seconds.
+- **Material 3 Expressive inspired design:** wavy progress indicators, spring motion, shapes that morph on hover, and a palette generated from any seed color. This is a re-creation in plain HTML, CSS and JavaScript, not Google's official component library.
+- **Wireless support:** phones connected over Wi-Fi (any port) are detected, and a guided pairing step helps you connect one.
+- **Friendly phone names:** `SM-G991B` is shown as `Galaxy S21 5G`.
+- **"No phone connected" screen** with hints that match the problem (unauthorized, adb missing, offline, several devices).
+- **Dashboard option in the original menu**, next to scrcpy.
+
+### Fixes to the original
+
+- Wireless devices (`IP:port`) were skipped, and Wi-Fi detection assumed port 5555.
+- Devices that had been unplugged were still listed as connected from old saved data.
+- adb's `* daemon started` lines were treated as devices.
+- Choosing `0` to exit first selected the last device.
+- scrcpy output was hidden, so a crash looked like a normal exit. Errors are now shown.
+- The needless `adb usb` call before scrcpy was removed.
+- Text typed during wireless setup is validated before it reaches a shell command.
 
 ## Requirements
 
-- Python 3.x
-- `adb` (Android Debug Bridge) installed and properly configured
-- `scrcpy` installed on your system (for screen mirroring)
+- Python 3.8 or newer (no extra packages)
+- `adb` (Android platform tools)
+- `scrcpy` (optional, only for the screen mirror)
+- An Android phone with USB debugging, or Wireless debugging (Android 11 or newer)
 
-## Installation
+Developed and tested on Linux. It should work on macOS and Windows too, but that is untested.
 
-### 1. Clone the repository:
+## Quick start
 
-```bash
-git clone https://github.com/yourusername/adb-device-manager.git
-cd adb-device-manager
+```
+git clone https://github.com/immohammeeed/ADB-Connect-Map.git
+cd ADB-Connect-Map
+python3 adb_connect_map.py
 ```
 
-### 2. Install the required Python dependencies:
+Pick your phone, then choose **1. Live dashboard**. Your browser opens at `http://127.0.0.1:8000`. Press Ctrl+C to stop.
 
-```bash
-pip install -r requirements.txt
+You can also run the parts directly:
+
+```
+python3 server.py                 # dashboard only (add -s SERIAL to pick a phone)
+python3 phone_stats.py            # print battery, storage and RAM in the terminal
+python3 phone_stats.py --json     # the same data as JSON
+python3 adb_connect_map.py --action dashboard
 ```
 
-### 3. Install `scrcpy` and `adb` if not already installed:
+## Single executable
 
-#### For **Windows**:
-- [Install ADB](https://developer.android.com/studio/command-line/adb) and make sure it’s added to your system's PATH.
-- Download `scrcpy` from [the official GitHub releases page](https://github.com/Genymobile/scrcpy/releases).
+You can package the dashboard into one file that needs no Python installed:
 
-#### For **macOS**:
-```bash
-brew install scrcpy
-brew install android-platform-tools
+```
+./build.sh
+./dist/phone-dashboard --self-test    # checks the bundled files, adb and scrcpy
+./dist/phone-dashboard                # starts the dashboard and opens your browser
 ```
 
-#### For **Linux**:
-```bash
-sudo apt install scrcpy
-sudo apt install android-tools-adb
-vbnet
-Copy code
+The executable still needs `adb` on the computer (and `scrcpy` if you want screen mirroring). It is built with PyInstaller, so build it on the kind of system you want to run it on: a Linux build runs on Linux. If port 8000 is busy, it uses the next free port.
+
+## Connecting wirelessly
+
+1. On the phone: Settings, Developer options, **Wireless debugging** (turn it on). The phone and computer must be on the same Wi-Fi network.
+2. Run `python3 adb_connect_map.py`. If no phone is found it offers a guided setup.
+3. First time only: tap **Pair device with pairing code** on the phone and enter the address and 6-digit code when asked.
+4. Enter the IP address and port shown on the main Wireless debugging screen.
+
+Android chooses a new port each time Wireless debugging is switched on, so reconnect with the new port after toggling it.
+
+## Friendly device names
+
+A small table of Samsung Galaxy models is included in `device_names.json`. To cover almost every phone, run this once (needs internet):
+
+```
+python3 update_device_names.py
 ```
 
-## Usage
+It downloads Google's public list of supported Android devices and merges it into `device_names.json`. Entries you add by hand are kept.
 
-### 1. Update the device map:
-Before using the tool, you need to scan your connected devices to populate the `device_map.json` file.
+## Privacy and safety
 
-Run the following command to update the device map:
+- The dashboard listens on `127.0.0.1` only, so other devices on your network cannot reach it.
+- The dashboard only reads data: `dumpsys battery`, `df`, `/proc/meminfo` and `getprop`. It changes nothing on the phone.
+- scrcpy mirrors your real screen, including notifications. Turn on Do Not Disturb before showing it to an audience.
+- Turn Wireless debugging off when you are not using it.
+- `device_map.json` stores serial numbers and IP addresses, so it is excluded from git.
 
-```bash
-python update_device_map.py
-```
+## Project layout
 
-### 2. Start the CLI menu:
-After updating the device map, run the following command to start the device selection menu:
+| File | Purpose |
+| --- | --- |
+| `adb_connect_map.py` | Original program, modified: device menu, wireless support, dashboard and scrcpy options |
+| `phone_stats.py` | Reads battery, storage, RAM and the phone's name over ADB |
+| `server.py` | Local web server that serves the dashboard and `/api/stats` |
+| `dashboard/` | The web page (`index.html`, `style.css`, `app.js`) |
+| `device_names.json` | Model code to marketing name table |
+| `update_device_names.py` | Builds the full name table from Google's device list |
 
-```bash
-python connect_device.py
-```
+## Credits and license
 
-The CLI will present a list of available devices and ask you to select one to connect to. You can exit at any time by selecting option `0`.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)
+Original project by [crosenblum](https://github.com/crosenblum/ADB-Connect-Map), released under the MIT license. See [LICENSE](LICENSE), which is kept unchanged.
+The dashboard design is inspired by Google's Material 3 Expressive. This project is not affiliated with Google.
